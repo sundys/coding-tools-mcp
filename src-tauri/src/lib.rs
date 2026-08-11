@@ -23,9 +23,10 @@ use commands::{
     check_app_update, create_workspace, delete_frp_profile, delete_workspace,
     get_actions_runtime_status, get_app_settings, get_download_config, get_frp_snippet,
     get_last_workspace_id, get_proxy, get_runtime_status, get_shared_secret,
-    get_webview_memory_sample, get_workspace_secret, handle_close_action, install_software,
-    list_frp_profiles, list_software, list_workspaces, open_url, open_workspace_directory,
-    read_workspace_logs, recreate_ui_webview,
+    get_webview_memory_sample, get_workspace_secret, handle_close_action,
+    handle_remembered_close_action, install_software, list_frp_profiles, list_software,
+    list_workspaces, open_url, open_workspace_directory, read_workspace_logs,
+    recreate_ui_webview, ClosePreferenceState,
     regenerate_shared_secret, regenerate_workspace_secret, restart_actions_runtime, restart_runtime,
     restart_tunnel, run_health_checks, save_frp_profile, set_download_config, set_last_workspace,
     set_proxy, set_shared_secret, set_workspace_secret, start_actions_runtime, start_runtime,
@@ -122,6 +123,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(AppState::new().expect("failed to load app state"));
+            app.manage(ClosePreferenceState::default());
             #[cfg(target_os = "windows")]
             setup_windows_tray(app)?;
             // Recover FRP clients that stay alive while the public proxy dies
@@ -183,7 +185,15 @@ pub fn run() {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = window.emit("app-close-requested", ());
+                    let preference = window.state::<ClosePreferenceState>();
+                    let handled = handle_remembered_close_action(
+                        window.app_handle(),
+                        preference.inner(),
+                    )
+                    .unwrap_or(false);
+                    if !handled {
+                        let _ = window.emit("app-close-requested", ());
+                    }
                 }
             }
         })

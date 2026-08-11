@@ -2,11 +2,11 @@
 
 ## 概述
 
-本设计在 Windows 主窗口关闭事件与现有 Tauri 运行循环之间增加轻量拦截，在 Svelte 根布局展示定制确认提示，并通过系统托盘提供后台恢复入口。MCP、Actions 和隧道状态机不参与关闭决策，后台运行依靠主进程持续存活。
+本设计在 Windows 主窗口关闭事件与现有 Tauri 运行循环之间增加轻量拦截，在 Svelte 根布局展示定制确认提示，并通过系统托盘提供后台恢复入口。本次迭代增加 Rust 进程内关闭偏好状态，并把提示视觉尺寸缩小为原实现约三分之二。MCP、Actions 和隧道状态机不参与关闭决策，后台运行依靠主进程持续存活。
 
 ## 对应需求
 
-覆盖 FR-1、FR-2、FR-3、FR-4、FR-5、FR-6。
+覆盖 FR-1、FR-2、FR-3、FR-4、FR-5、FR-6、FR-7。
 
 ## 现状证据
 
@@ -22,12 +22,13 @@
 
 ```text
 Windows CloseRequested
-  -> Tauri on_window_event: prevent_close + emit("app-close-requested")
-  -> +layout.svelte listen: app-close-requested
-  -> ClosePrompt.svelte
-      Cancel: hide prompt
-      Background: invoke("handle_close_action", "background") -> window.hide()
-      Direct close: invoke("handle_close_action", "exit") -> app.exit(0)
+  -> Tauri on_window_event: prevent_close
+  -> Rust ClosePreferenceState
+      No preference: emit("app-close-requested") -> ClosePrompt.svelte
+        Cancel: hide prompt without remembering
+        Background: remember + window.hide()
+        Direct close: remember + app.exit(0)
+      Remembered preference: execute action directly without WebView prompt
 
 TrayIcon event
   -> Open main window: show + set_focus
@@ -36,15 +37,17 @@ TrayIcon event
 
 ### Rust 设计
 
-`lib.rs` 增加 `CloseAction` 枚举和 `handle_close_action` command。`CloseAction::Background` 只对主窗口执行 `hide`；`CloseAction::Exit` 调用 `AppHandle::exit(0)`。命令返回 `Result<(), String>`，前端可将错误显示为 Toast。
+`app_lifecycle.rs` 使用 `ClosePreferenceState(Mutex<Option<CloseAction>>)` 保存进程内偏好。`CloseAction` 实现 `Copy`，`handle_close_action` 在执行用户确认操作前记录偏好；`handle_remembered_close_action` 供窗口事件读取并直接执行。状态只通过 `Builder::manage` 创建，进程退出即释放，不接入现有持久化配置。
 
-在 `Builder::setup` 中使用 `TrayIconBuilder` 创建托盘菜单。菜单项 ID 固定为 `show-window` 与 `exit-app`，事件回调只执行窗口显示/聚焦或 `app.exit(0)`。`on_window_event` 仅对 label 为 `main` 且事件为 `CloseRequested` 的窗口调用 `prevent_close` 并发出 `app-close-requested`；其他窗口事件保持默认行为。托盘与关闭拦截代码使用 `#[cfg(target_os = "windows")]`，命令本身跨平台编译以保持 invoke 注册一致。
+`CloseAction::Background` 只对主窗口执行 `hide`；`CloseAction::Exit` 调用 `AppHandle::exit(0)`。命令返回 `AppResult<()>`，互斥锁中毒或隐藏失败时前端继续显示提示并通过 Toast 报错。
+
+在 `Builder::setup` 中使用 `TrayIconBuilder` 创建托盘菜单。菜单项 ID 固定为 `show-window` 与 `exit-app`，事件回调只执行窗口显示/聚焦或 `app.exit(0)`。`on_window_event` 仅对 label 为 `main` 且事件为 `CloseRequested` 的窗口调用 `prevent_close`。若已有进程内偏好则直接执行；偏好为空或执行失败时发出 `app-close-requested`。其他窗口事件保持默认行为。托盘与关闭拦截代码使用 `#[cfg(target_os = "windows")]`，命令与状态本身跨平台编译以保持 invoke 注册一致。
 
 应用已有 `commands` 模块聚合 command。新增命令放在 `commands/app_lifecycle.rs` 并从 `commands/mod.rs` re-export，避免继续膨胀入口文件；该模块只依赖 Tauri 类型，不触碰 `AppState` 或运行时锁。
 
 ### Svelte 设计
 
-新增 `src/lib/components/ClosePrompt.svelte`，使用 `role="dialog"`、`aria-modal="true"`、标题和说明文本。组件接收 `open`，通过回调通知 `cancel`、`background`、`exit`。按钮顺序和颜色与截图一致：取消为浅色描边，后台运行为浅色描边，直接关闭为红色实心。
+`src/lib/components/ClosePrompt.svelte` 使用 `role="dialog"`、`aria-modal="true"`、标题和说明文本。组件接收 `open`，通过回调通知 `cancel`、`background`、`exit`。按钮顺序和颜色与截图一致。主要宽度从 896px 调整到约 600px，内边距、字号、间距和按钮尺寸同步缩放到约三分之二，同时保留移动端响应式布局和可点击性。
 
 `+layout.svelte` 在 `onMount` 中调用 Tauri `listen("app-close-requested")`，将 `closePromptOpen` 置为 true；卸载时取消监听。操作回调先关闭提示，再调用生命周期 command。命令失败时调用现有 `showToast`，并恢复提示框状态，保证用户不会被静默隐藏。
 
@@ -68,9 +71,10 @@ src/
 
 ## 测试策略
 
-- Rust 单元测试覆盖 `CloseAction` 的序列化值和无效 action 错误。
+- Rust 单元测试覆盖 `CloseAction` 的序列化值、无效 action、默认空偏好和进程内记忆。
 - 前端静态检查覆盖 ClosePrompt 的可访问属性、按钮文案和事件回调类型。
-- Windows 手测：标题栏关闭、取消、后台运行、托盘打开、托盘退出、普通最小化；确认 MCP/Actions/隧道状态在后台运行后保持。
+- 契约测试覆盖约 600px 弹窗、Rust `Mutex<Option<CloseAction>>` 状态，以及窗口事件优先读取记忆。
+- Windows 手测：首次关闭、取消后重问、后台运行后直接隐藏、完全退出重启后重问、托盘打开/退出、普通最小化；确认 MCP/Actions/隧道状态在后台运行后保持。
 - CI 运行 `npm run check`、`npm run build`、`cargo check`、`cargo test`；release workflow 运行 Windows NSIS 与 macOS universal DMG 构建。
 
 ## 设计决策
@@ -80,4 +84,5 @@ src/
 | 提示实现 | Svelte 自定义模态 | 截图是定制布局，且跨窗口事件可复用；原生 dialog 无法匹配按钮样式 |
 | 关闭控制 | Rust command | 避免引入进程插件和额外 capability，退出路径可绕过 CloseRequested |
 | 后台入口 | Tauri tray-icon | 进程继续运行且可从 Windows 系统托盘恢复，符合需求文字 |
-| 状态持久化 | 不持久化 | 截图只定义当前关闭决策，不要求记忆选择 |
+| 关闭偏好存储 | Rust 进程内 `Mutex<Option<CloseAction>>` | 满足进程存活期间有效、WebView 重建不丢失、完全退出自动清空 |
+| 视觉缩放 | 主要尺寸按约 2/3 等比缩放 | 明确落实“减少 1/3”，同时保持按钮比例与响应式布局 |

@@ -19,6 +19,8 @@ test("关闭提示保留截图定义的标题、说明和三个操作", async ()
   assert.match(source, />\s*取消\s*<\/button>/);
   assert.match(source, />\s*后台运行\s*<\/button>/);
   assert.match(source, />\s*直接关闭\s*<\/button>/);
+  assert.match(source, /本次运行期间会记住你的选择/);
+  assert.match(source, /width: min\(600px, calc\(100vw - 32px\)\)/);
 });
 
 test("根布局监听关闭事件并将两个非取消操作映射到 IPC action", async () => {
@@ -37,6 +39,14 @@ test("Rust 生命周期契约限制 action，并拦截 Windows close event", asy
   assert.match(lifecycle, /enum CloseAction/);
   assert.match(lifecycle, /Background/);
   assert.match(lifecycle, /Exit/);
+  assert.match(
+    lifecycle,
+    /pub struct ClosePreferenceState\(Mutex<Option<CloseAction>>\)/,
+  );
+  assert.match(lifecycle, /handle_remembered_close_action/);
+  assert.match(lifecycle, /ClosePreferenceState::default\(\)/);
+  assert.match(entry, /app\.manage\(ClosePreferenceState::default\(\)\)/);
+  assert.match(entry, /handle_remembered_close_action/);
   assert.match(entry, /api\.prevent_close\(\)/);
   assert.match(entry, /window\.emit\("app-close-requested"/);
   assert.match(entry, /"show-window"/);

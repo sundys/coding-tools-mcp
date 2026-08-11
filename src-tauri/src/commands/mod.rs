@@ -11,7 +11,9 @@ pub(crate) mod ui_memory;
 mod workspace;
 
 pub use app_info::{check_app_update, open_url};
-pub use app_lifecycle::handle_close_action;
+pub use app_lifecycle::{
+    handle_close_action, handle_remembered_close_action, ClosePreferenceState,
+};
 pub use ui_memory::{get_webview_memory_sample, recreate_ui_webview};
 pub use frp_profiles::{
     delete_frp_profile, get_app_settings, get_last_workspace_id, get_proxy, list_frp_profiles,

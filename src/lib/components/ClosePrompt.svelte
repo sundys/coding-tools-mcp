@@ -45,6 +45,7 @@
       <h2 id="close-prompt-title">关闭 Coding Tools MCP？</h2>
       <p id="close-prompt-description">
         选择后台运行可隐藏窗口并保持 MCP、Actions 和隧道服务继续运行，之后可通过系统托盘重新打开。
+        本次运行期间会记住你的选择。
       </p>
 
       <div class="close-prompt-actions">
@@ -85,50 +86,50 @@
     z-index: 10000;
     display: grid;
     place-items: center;
-    padding: 24px;
+    padding: 16px;
     background: rgba(15, 23, 42, 0.42);
     backdrop-filter: blur(4px);
   }
 
   .close-prompt {
-    width: min(896px, calc(100vw - 48px));
-    padding: 48px 50px 42px;
+    width: min(600px, calc(100vw - 32px));
+    padding: 32px 34px 28px;
     border: 1px solid var(--border);
-    border-radius: 24px;
+    border-radius: 16px;
     background: var(--card-bg);
-    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+    box-shadow: 0 16px 43px rgba(15, 23, 42, 0.22);
   }
 
   h2 {
     margin: 0;
     color: var(--text-main);
-    font-size: 30px;
+    font-size: 20px;
     font-weight: 700;
     letter-spacing: 0;
   }
 
   p {
-    max-width: 760px;
-    margin: 20px 0 0;
+    max-width: 510px;
+    margin: 13px 0 0;
     color: var(--text-muted);
-    font-size: 20px;
-    line-height: 1.65;
+    font-size: 14px;
+    line-height: 1.6;
     letter-spacing: 0;
   }
 
   .close-prompt-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 16px;
-    margin-top: 44px;
+    gap: 11px;
+    margin-top: 30px;
   }
 
   .close-prompt-button {
-    min-width: 104px;
-    min-height: 62px;
-    padding: 0 24px;
-    border-radius: 16px;
-    font-size: 20px;
+    min-width: 72px;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 11px;
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: 0;
     cursor: pointer;
@@ -168,28 +169,28 @@
 
   @media (max-width: 720px) {
     .close-prompt {
-      padding: 32px 28px 28px;
-      border-radius: 18px;
+      padding: 24px 20px 20px;
+      border-radius: 14px;
     }
 
     h2 {
-      font-size: 24px;
+      font-size: 20px;
     }
 
     p {
-      font-size: 16px;
+      font-size: 14px;
     }
 
     .close-prompt-actions {
       flex-wrap: wrap;
       gap: 10px;
-      margin-top: 32px;
+      margin-top: 24px;
     }
 
     .close-prompt-button {
       flex: 1 1 140px;
-      min-height: 52px;
-      font-size: 16px;
+      min-height: 44px;
+      font-size: 14px;
     }
   }
 </style>
