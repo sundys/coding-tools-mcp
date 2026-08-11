@@ -22,9 +22,10 @@ use app_state::AppState;
 use commands::{
     check_app_update, create_workspace, delete_frp_profile, delete_workspace,
     get_actions_runtime_status, get_app_settings, get_download_config, get_frp_snippet,
-    get_last_workspace_id, get_proxy, get_runtime_status, get_shared_secret, get_webview_memory_sample,
-    get_workspace_secret, install_software, list_frp_profiles, list_software, list_workspaces,
-    open_url, open_workspace_directory, read_workspace_logs, recreate_ui_webview,
+    get_last_workspace_id, get_proxy, get_runtime_status, get_shared_secret,
+    get_webview_memory_sample, get_workspace_secret, handle_close_action, install_software,
+    list_frp_profiles, list_software, list_workspaces, open_url, open_workspace_directory,
+    read_workspace_logs, recreate_ui_webview,
     regenerate_shared_secret, regenerate_workspace_secret, restart_actions_runtime, restart_runtime,
     restart_tunnel, run_health_checks, save_frp_profile, set_download_config, set_last_workspace,
     set_proxy, set_shared_secret, set_workspace_secret, start_actions_runtime, start_runtime,
@@ -32,6 +33,55 @@ use commands::{
     update_workspace,
 };
 use tauri::Manager;
+
+#[cfg(target_os = "windows")]
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter,
+};
+
+#[cfg(target_os = "windows")]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn setup_windows_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show-window", "打开主窗口", true, None::<&str>)?;
+    let exit = MenuItem::with_id(app, "exit-app", "退出应用", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &exit])?;
+
+    let mut tray = TrayIconBuilder::new()
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("Coding Tools MCP")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show-window" => show_main_window(app),
+            "exit-app" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
 
 #[cfg(target_os = "windows")]
 fn acquire_single_instance() -> bool {
@@ -72,6 +122,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(AppState::new().expect("failed to load app state"));
+            #[cfg(target_os = "windows")]
+            setup_windows_tray(app)?;
             // Recover FRP clients that stay alive while the public proxy dies
             // (common after install/restart network blips).
             tunnel::ensure_frp_health_loop();
@@ -121,7 +173,20 @@ pub fn run() {
             set_proxy,
             get_webview_memory_sample,
             recreate_ui_webview,
+            handle_close_action,
         ])
+        .on_window_event(|window, event| {
+            #[cfg(not(target_os = "windows"))]
+            let _ = (window, event);
+
+            #[cfg(target_os = "windows")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.emit("app-close-requested", ());
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, event| {

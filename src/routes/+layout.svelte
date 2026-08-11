@@ -3,8 +3,11 @@
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
+  import { invoke } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import AppShell from "$lib/components/AppShell.svelte";
+  import ClosePrompt from "$lib/components/ClosePrompt.svelte";
   import ToastHost from "$lib/components/ToastHost.svelte";
   import WorkspaceNavItem from "$lib/components/WorkspaceNavItem.svelte";
   import {
@@ -20,6 +23,26 @@
   import type { RuntimeState } from "$lib/types";
 
   let { children } = $props();
+  let closePromptOpen = $state(false);
+  let closeActionPending = $state(false);
+
+  async function handleCloseAction(action: "background" | "exit") {
+    if (closeActionPending) return;
+    closeActionPending = true;
+    closePromptOpen = false;
+    try {
+      await invoke("handle_close_action", { action });
+    } catch (error) {
+      closePromptOpen = true;
+      showToast(String(error), {
+        title: "无法完成关闭操作",
+        kind: "error",
+        duration: 8000,
+      });
+    } finally {
+      closeActionPending = false;
+    }
+  }
 
   async function refreshWorkspaces() {
     const items = await listWorkspaces();
@@ -84,6 +107,27 @@
 
   onMount(() => {
     const stopGuard = startUiMemoryGuard();
+    let disposed = false;
+    let stopCloseListener: UnlistenFn | undefined;
+
+    void listen("app-close-requested", () => {
+      closePromptOpen = true;
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          stopCloseListener = unlisten;
+        }
+      })
+      .catch((error) => {
+        showToast(String(error), {
+          title: "无法监听窗口关闭事件",
+          kind: "error",
+          duration: 8000,
+        });
+      });
+
     void (async () => {
       await refreshWorkspaces();
       const path = $page.url.pathname;
@@ -96,7 +140,11 @@
         }
       }
     })();
-    return stopGuard;
+    return () => {
+      disposed = true;
+      stopCloseListener?.();
+      stopGuard();
+    };
   });
 </script>
 
@@ -151,3 +199,11 @@
 </AppShell>
 
 <ToastHost />
+
+<ClosePrompt
+  open={closePromptOpen}
+  busy={closeActionPending}
+  onCancel={() => (closePromptOpen = false)}
+  onBackground={() => void handleCloseAction("background")}
+  onExit={() => void handleCloseAction("exit")}
+/>
