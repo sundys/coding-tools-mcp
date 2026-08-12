@@ -95,6 +95,9 @@ jobs:
       - build-universal-macos
     runs-on: ubuntu-latest
     steps:
+      - name: 检出发布说明
+        uses: actions/checkout@v4
+
       - name: 下载 Windows EXE
         uses: actions/download-artifact@v4
         with:
