@@ -234,7 +234,16 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     if commands::window_chrome::should_intercept_close() {
                         api.prevent_close();
-                        let _ = app_handle.emit("close-requested", ());
+                        if commands::window_chrome::should_run_in_background_on_close() {
+                            if let Err(error) =
+                                commands::window_chrome::hide_to_tray(app_handle.clone())
+                            {
+                                eprintln!("按已记忆的选择隐藏窗口失败: {error}");
+                                let _ = app_handle.emit("close-requested", ());
+                            }
+                        } else {
+                            let _ = app_handle.emit("close-requested", ());
+                        }
                     }
                 }
             }

@@ -2,19 +2,27 @@
 
 ## 概述
 
-对应需求 FR-1～FR-5：关窗时用应用内三按钮确认替代直接退出；「后台运行」隐藏到托盘并保持 MCP/Actions/隧道；「直接关闭」与托盘「退出」真退出；与 `recreate_ui_webview` 隐藏态协同；Windows 二次启动尽量唤起已有窗口。
+对应需求 FR-1～FR-6：关窗时用应用内三按钮确认替代直接退出；「后台运行」隐藏到托盘并保持 MCP/Actions/隧道；同一进程内记住后台运行选择；「直接关闭」与托盘「退出」真退出；与 `recreate_ui_webview` 隐藏态协同；Windows 二次启动尽量唤起已有窗口。
 
 ## 技术方案
 
-### 关闭拦截（前端优先）
+### 关闭拦截（Rust 统一决策）
 
-主窗使用 `@tauri-apps/api/window` 的 `onCloseRequested`：
+Rust 在 `RunEvent::WindowEvent(CloseRequested)` 统一处理主窗口关闭请求：
 
-1. `event.preventDefault()` 阻止销毁。
-2. 若内部标志 `allowClose=true`（真退出路径）则不拦截，允许关闭。
-3. 否则打开应用内确认对话框（非系统 `confirm`，以支持三按钮样式）。
+1. 当 `ALLOW_EXIT` 为 false 且未在重建 UI 时，调用 `api.prevent_close()` 阻止销毁。
+2. 未记住后台运行选择时，向前端 emit `close-requested`，由根 layout 打开应用内三按钮对话框。
+3. 已记住后台运行选择时，直接调用 `hide_to_tray`，不再 emit 弹窗事件。
 
-Rust 侧同步在 `on_window_event(CloseRequested)` 作为兜底：当 `ALLOW_EXIT` 为 false 时 `api.prevent_close()` + 向前端 emit `close-requested`（若前端未挂上）。首选前端对话框，避免双弹。
+前端 `close-guard` 只监听 Rust 的 `close-requested`，不再额外注册 `onCloseRequested`。这样可避免同一次关闭由前后端重复处理，也保证进程内选择的判断只有一个权威来源。
+
+### 进程内关闭选择记忆
+
+- `window_chrome` 使用进程内原子状态保存是否已选择「后台运行」，初始值为未选择。
+- `hide_to_tray` 成功隐藏主窗口后才写入该状态，避免隐藏失败却跳过后续确认。
+- Rust `CloseRequested` 兜底先阻止默认销毁；若已记住「后台运行」，直接再次调用托盘隐藏命令，不再 emit `close-requested`；否则维持现有弹窗路径。
+- 状态不落盘，因此 WebView 重建后仍由 Rust 主进程保留，桌面进程退出后由操作系统自然清空。
+- 「取消」不写状态；「直接关闭」会立即结束进程，新进程仍从未选择状态开始。
 
 ### 托盘（Rust）
 
@@ -60,6 +68,7 @@ Rust 侧同步在 `on_window_event(CloseRequested)` 作为兜底：当 `ALLOW_EX
 2. **真退出设允许标志再关窗**：避免 CloseRequested 再次拦截。
 3. **托盘隐藏用 hide 而非 minimize**：与 taskbar 最小化语义分离，减少与 0.1.32/33 修复路径冲突。
 4. **二次启动 Should**：尽力做 Windows 唤起，不阻塞主路径。
+5. **记忆归 Rust 主进程所有**：避免 `localStorage` 跨进程残留，也避免仅存在前端模块中而被 WebView 重建清空。
 
 ## 文件结构
 

@@ -1,10 +1,11 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 
 export type CloseDialogOpener = () => void;
 
 /**
- * Intercept the main window close button and open the confirm dialog instead.
+ * Open the confirm dialog when the Rust close controller asks the UI to do so.
+ * Rust owns interception and process-lifetime choice reuse so a WebView recreate
+ * cannot lose the remembered action.
  * Returns an unsubscribe function.
  */
 export function startCloseGuard(openDialog: CloseDialogOpener): () => void {
@@ -12,20 +13,10 @@ export function startCloseGuard(openDialog: CloseDialogOpener): () => void {
     return () => {};
   }
 
-  let unlistenWindow: (() => void) | undefined;
   let unlistenEvent: (() => void) | undefined;
   let disposed = false;
 
   void (async () => {
-    try {
-      unlistenWindow = await getCurrentWindow().onCloseRequested(async (event) => {
-        event.preventDefault();
-        openDialog();
-      });
-    } catch {
-      // Non-Tauri / web preview: ignore.
-    }
-
     try {
       unlistenEvent = await listen("close-requested", () => {
         openDialog();
@@ -35,14 +26,12 @@ export function startCloseGuard(openDialog: CloseDialogOpener): () => void {
     }
 
     if (disposed) {
-      unlistenWindow?.();
       unlistenEvent?.();
     }
   })();
 
   return () => {
     disposed = true;
-    unlistenWindow?.();
     unlistenEvent?.();
   };
 }

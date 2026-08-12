@@ -64,11 +64,25 @@
   - **证据块**: 记录命令退出码与手动路径结果。
   - _需求: 全部 FR_
 
+### 阶段 4: 当前进程关闭选择记忆
+
+- [x] 4.1 在 `window_chrome` 增加仅进程内存在的后台运行选择状态；`hide_to_tray` 成功后记忆
+  - **证据块**: 当前 `hide_to_tray` 仅隐藏窗口，后续 `CloseRequested` 总是 emit `close-requested`。
+  - **涉及文件**: `src-tauri/src/commands/window_chrome.rs`
+  - _需求: FR-6_ ｜ _设计: 进程内关闭选择记忆_
+
+- [x] 4.2 `CloseRequested` 根据进程内选择直接隐藏或继续弹窗；补充状态单元测试与构建检查
+  - **证据块**: 当前 `src-tauri/src/lib.rs::run` 没有区分首次关闭与已选择后台运行。
+  - **涉及文件**: `src-tauri/src/lib.rs`、`src-tauri/src/commands/window_chrome.rs`
+  - _需求: FR-6, NFR-4_ ｜ _设计: 进程内关闭选择记忆_
+
+验证记录（2026-08-12）：`npm run check`、`npm run build`、`node --test tests\*.test.mjs`、`git diff --check` 通过；Rust 单元测试已加入 `window_chrome`，当前机器未发现 Cargo，待 CI 的 Rust job 执行。
+
 ---
 
 ## 实施顺序
 
-1.1 → 1.2 → 1.3 → 2.1 → 1.4 → 3.1
+1.1 → 1.2 → 1.3 → 2.1 → 1.4 → 3.1 → 4.1 → 4.2
 
 ---
 
@@ -81,7 +95,8 @@
 | FR-3 | 1.1, 1.2, 2.1 |
 | FR-4 | 1.3 |
 | FR-5 | 1.4 |
-| NFR-1～3 | 1.1, 1.2, 2.1, 3.1 |
+| FR-6 | 4.1, 4.2 |
+| NFR-1～4 | 1.1, 1.2, 2.1, 3.1, 4.1, 4.2 |
 
 ## 文件变更清单
 
